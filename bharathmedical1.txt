@@ -1,0 +1,249 @@
+"""
+Simple single-file Flask web app for "Bharath Medical".
+Features:
+- Home, About, Services, Contact pages
+- Appointment form that saves submissions to appointments.csv
+- Minimal styling using Bootstrap CDN
+
+How to run:
+1. Create a virtual environment (recommended): python -m venv venv
+2. Activate it: venv\Scripts\activate (Windows) or source venv/bin/activate (macOS/Linux)
+3. Install Flask: pip install Flask
+4. Run: python Bharath_Medical_Flask_App.py
+5. Browse: http://127.0.0.1:5000/
+
+This file is intentionally self-contained for quick testing and learning.
+"""
+
+from flask import Flask, render_template_string, request, redirect, url_for, flash
+import csv
+import os
+from datetime import datetime
+
+app = Flask(__name__)
+app.secret_key = "replace-this-with-a-secure-random-key"
+
+DATA_FILE = "appointments.csv"
+
+# Ensure CSV exists with header
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w", newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["timestamp", "name", "email", "phone", "service", "date", "time", "notes"])
+
+BASE_HTML = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bharath Medical - {{ title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      body { padding-top: 70px; }
+      .brand { font-weight: 700; letter-spacing: .6px; }
+      footer { margin-top: 50px; padding: 20px 0; background:#f8f9fa; }
+      .hero { background: linear-gradient(90deg, #e9f5ff, #ffffff); padding: 40px; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-md navbar-light bg-light fixed-top shadow-sm">
+      <div class="container">
+        <a class="navbar-brand brand" href="/">Bharath Medical</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navmenu">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navmenu">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+            <li class="nav-item"><a class="nav-link" href="/services">Services</a></li>
+            <li class="nav-item"><a class="nav-link" href="/about">About</a></li>
+            <li class="nav-item"><a class="nav-link" href="/contact">Contact</a></li>
+            <li class="nav-item"><a class="nav-link btn btn-primary text-white ms-2" href="/appointment">Book Appointment</a></li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="mt-2">
+            {% for msg in messages %}
+              <div class="alert alert-success">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {{ body }}
+
+    </main>
+
+    <footer class="text-center">
+      <div class="container">
+        <p class="mb-0">&copy; {{ now.year }} Bharath Medical. All rights reserved.</p>
+      </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+</html>
+"""
+
+HOME_BODY = """
+<div class="hero">
+  <div class="row align-items-center">
+    <div class="col-md-8">
+      <h1>Welcome to Bharath Medical</h1>
+      <p class="lead">Compassionate care, modern facilities. Book appointments online or contact us for more information.</p>
+      <p>
+        <a class="btn btn-primary me-2" href="/appointment">Book Appointment</a>
+        <a class="btn btn-outline-secondary" href="/services">Our Services</a>
+      </p>
+    </div>
+    <div class="col-md-4 text-center">
+      <img src="https://via.placeholder.com/200x150.png?text=Clinic" alt="Clinic" class="img-fluid rounded">
+    </div>
+  </div>
+</div>
+
+<div class="row mt-4">
+  <div class="col-md-4">
+    <h5>Opening Hours</h5>
+    <p>Mon - Sat: 9:00 AM - 6:00 PM<br>Sun: Closed</p>
+  </div>
+  <div class="col-md-4">
+    <h5>Contact</h5>
+    <p>Phone: +91-9876543210<br>Email: info@bharathmedical.example</p>
+  </div>
+  <div class="col-md-4">
+    <h5>Location</h5>
+    <p>123 Health Street, Your City</p>
+  </div>
+</div>
+"""
+
+SERVICES_BODY = """
+<h2>Our Services</h2>
+<ul>
+  <li>General Consultation</li>
+  <li>Pediatrics</li>
+  <li>Diagnostics & Pathology</li>
+  <li>Minor Procedures</li>
+  <li>Vaccinations</li>
+</ul>
+"""
+
+ABOUT_BODY = """
+<h2>About Bharath Medical</h2>
+<p>Bharath Medical is a community-focused clinic providing high-quality primary healthcare services. Our team includes experienced physicians, nurses, and diagnostic staff dedicated to patient care.</p>
+"""
+
+CONTACT_BODY = """
+<h2>Contact Us</h2>
+<p>If you have any questions, email us at <a href="mailto:info@bharathmedical.example">info@bharathmedical.example</a> or call +91-9876543210.</p>
+"""
+
+APPOINTMENT_BODY = """
+<h2>Book an Appointment</h2>
+<form method="post" action="{{ url_for('appointment') }}">
+  <div class="row">
+    <div class="mb-3 col-md-6">
+      <label class="form-label">Full Name</label>
+      <input class="form-control" name="name" required>
+    </div>
+    <div class="mb-3 col-md-6">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-control" name="email" required>
+    </div>
+  </div>
+  <div class="row">
+    <div class="mb-3 col-md-4">
+      <label class="form-label">Phone</label>
+      <input class="form-control" name="phone" required>
+    </div>
+    <div class="mb-3 col-md-4">
+      <label class="form-label">Service</label>
+      <select class="form-select" name="service">
+        <option>General Consultation</option>
+        <option>Pediatrics</option>
+        <option>Diagnostics</option>
+        <option>Vaccination</option>
+      </select>
+    </div>
+    <div class="mb-3 col-md-4">
+      <label class="form-label">Preferred Date</label>
+      <input type="date" class="form-control" name="date">
+    </div>
+  </div>
+  <div class="row">
+    <div class="mb-3 col-md-4">
+      <label class="form-label">Preferred Time</label>
+      <input type="time" class="form-control" name="time">
+    </div>
+    <div class="mb-3 col-md-8">
+      <label class="form-label">Notes</label>
+      <input class="form-control" name="notes">
+    </div>
+  </div>
+  <button class="btn btn-primary" type="submit">Submit</button>
+</form>
+"""
+
+@app.route('/')
+def home():
+    return render_template_string(BASE_HTML, title="Home", body=HOME_BODY, now=datetime.now())
+
+@app.route('/services')
+def services():
+    return render_template_string(BASE_HTML, title="Services", body=SERVICES_BODY, now=datetime.now())
+
+@app.route('/about')
+def about():
+    return render_template_string(BASE_HTML, title="About", body=ABOUT_BODY, now=datetime.now())
+
+@app.route('/contact')
+def contact():
+    return render_template_string(BASE_HTML, title="Contact", body=CONTACT_BODY, now=datetime.now())
+
+@app.route('/appointment', methods=["GET", "POST"])
+def appointment():
+    if request.method == "POST":
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip()
+        service = request.form.get('service', '').strip()
+        date = request.form.get('date', '').strip()
+        time = request.form.get('time', '').strip()
+        notes = request.form.get('notes', '').strip()
+
+        # Basic validation
+        if not name or not email or not phone:
+            flash('Please provide name, email and phone.')
+            return redirect(url_for('appointment'))
+
+        timestamp = datetime.now().isoformat(sep=' ', timespec='seconds')
+        with open(DATA_FILE, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([timestamp, name, email, phone, service, date, time, notes])
+
+        flash('Appointment request submitted. We will contact you shortly.')
+        return redirect(url_for('home'))
+
+    return render_template_string(BASE_HTML, title="Book Appointment", body=APPOINTMENT_BODY, now=datetime.now())
+
+@app.route('/appointments.csv')
+def download_csv():
+    # Simple endpoint to download CSV of appointments (no auth - for demo only)
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return (content, 200, {
+            'Content-Type': 'text/csv',
+            'Content-Disposition': 'attachment; filename="appointments.csv"'
+        })
+    return ("No appointments yet.", 404)
+
+if __name__ == '__main__':
+    app.run(debug=True)
